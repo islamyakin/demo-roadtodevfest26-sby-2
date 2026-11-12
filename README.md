@@ -105,7 +105,7 @@ terraform -chdir=infra apply -var project_id=<project-id>    # review the plan, 
 |---|---|---|---|---|
 | 0:00 | Talk (15′) | – | – | – |
 | 0:15 | 0 · Deploy the shop (10′) | deploy (above), then try `./scripts/02-load.sh /5xx 10`, `/queryslow`, `/slow` | – | `20 200` on `/`; a mix of `200`/`502` on `/5xx` |
-| 0:25 | 1 · Connect Grafana (10′) | `cp .env.example .env` (set `GCP_PROJECT_ID`; with colima/nerdctl also `GCP_ADC_FILE`) → `docker compose up -d` → http://localhost:3000 (admin/admin) → Plugins → Grafana Assistant → Connection → **Quick connect**; Connections → Data sources → each → **Save & test** | [lab1-orient.md](prompts/lab1-orient.md) | both Google Cloud data sources green (ignore “Prometheus”, a local extra); request rate per service; log lines from both services |
+| 0:25 | 1 · Connect Grafana (10′) | `cp .env.example .env` (set `GCP_PROJECT_ID`; with colima/nerdctl also `GCP_ADC_FILE`) → `docker compose up -d` → http://localhost:3000 (admin/admin) → Plugins → Grafana Assistant → Connection → **Quick connect**; Connections → Data sources → each → **Save & test** | [lab1-orient.md](prompts/lab1-orient.md) | both Google Cloud data sources green; request rate per service; log lines from both services |
 | 0:35 | 2 · Dashboard by prompt (10′) | keep traffic for ~5 min: `./scripts/02-load.sh / 6000 2` | [lab2-dashboard.md](prompts/lab2-dashboard.md) | your own “Shop · RED” built by the Assistant; compare it with the provisioned “Shop · Overview” |
 | 0:45 | 3 · Incident `/5xx` (12′) | `./scripts/03-incident.sh 5xx` | [lab3-rca.md](prompts/lab3-rca.md) | both alerts on **both** services (≈50% 5xx, p95 ≈ 1.5 s from the gateway timeout); follow the trace from the frontend 502 to the backend `PaymentGatewayTimeout` |
 | 0:57 | 4 · Incident `/queryslow` (12′) | `./scripts/03-incident.sh queryslow` | [lab3-rca.md](prompts/lab3-rca.md) | alert **p95 latency above 1s**, later some 5xx; CPU stays low |
@@ -152,7 +152,7 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 | `provisioning/datasources/google-cloud.yaml` | the 2 Google Cloud data sources |
 | `provisioning/dashboards/` | the ready-made “Shop · Overview” dashboard + its loader |
 | `provisioning/alerting/services.yaml` | the 2 alert rules |
-| `docker-compose.yml`, `.env.example` | Grafana 13.3 + Assistant + Cloud Logging plugin, `gmp-frontend` (Google’s PromQL proxy), ADC mount (the Prometheus/node-exporter/cAdvisor services are a local extra, not used by the labs) |
+| `docker-compose.yml`, `.env.example` | Grafana 13.3 + Assistant + Cloud Logging plugin, `gmp-frontend` (Google’s PromQL proxy), ADC mount |
 | `prompts/` | Assistant prompts per lab |
 | `slides/index.html` | the deck |
 

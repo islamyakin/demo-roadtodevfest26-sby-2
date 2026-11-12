@@ -1,0 +1,66 @@
+apiVersion: 1
+
+# Symptom alerts on Cloud Run's built-in metrics (via PromQL), one alert instance per service.
+# They tell you WHERE it hurts; the Assistant + you find WHY.
+groups:
+  - orgId: 1
+    name: shop
+    folder: Workshop
+    interval: 1m
+    rules:
+      - uid: shop-5xx
+        title: 5xx ratio above 5%
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.service_name }}: more than 5% of requests fail with 5xx."
+          runbook: "Ask Grafana Assistant: prompts/lab3-rca.md"
+        data:
+          - refId: A
+            datasourceUid: gcp-promql
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource="cloud_run_revision",service_name=~"frontend|backend",response_code_class="5xx"}[5m]))
+                / sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource="cloud_run_revision",service_name=~"frontend|backend"}[5m]))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0.05]}
+
+      - uid: shop-latency
+        title: p95 latency above 1s
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $labels.service_name }}: p95 latency is above 1000 ms."
+          runbook: "Ask Grafana Assistant: prompts/lab3-rca.md"
+        data:
+          - refId: A
+            datasourceUid: gcp-promql
+            relativeTimeRange: {from: 600, to: 0}
+            model:
+              refId: A
+              instant: true
+              expr: >-
+                histogram_quantile(0.95, sum by (le, service_name) (rate(run_googleapis_com:request_latencies_bucket{monitored_resource="cloud_run_revision",service_name=~"frontend|backend"}[5m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [1000]}

@@ -1,0 +1,547 @@
+{
+  "uid": "shop-overview",
+  "title": "Shop · Overview",
+  "tags": [
+    "workshop",
+    "cloud-run"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "1m",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "description": "frontend → backend on Cloud Run. Top: which service. Middle: which route. Bottom: why.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Per service · Cloud Run built-in metrics (which service hurts?)",
+      "collapsed": false,
+      "id": 1,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests/s",
+      "description": "",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m]))",
+          "legendFormat": "{{service_name}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx ratio",
+      "description": "Alert: above 5% for 2m",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "100 * sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\",response_code_class=\"5xx\"}[5m])) / sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m]))",
+          "legendFormat": "{{service_name}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency",
+      "description": "Alert: above 1000 ms for 2m",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(run_googleapis_com:request_latencies_bucket{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m])))",
+          "legendFormat": "{{service_name}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU utilization p95",
+      "description": "Resource or code? High here + slow = CPU-bound",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(run_googleapis_com:container_cpu_utilizations_bucket{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m])))",
+          "legendFormat": "{{service_name}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Per route · log-based metrics app_requests / app_latency (which route?)",
+      "collapsed": false,
+      "id": 6,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests/s by route",
+      "description": "",
+      "id": 7,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "sum by (service, route) (rate(logging_googleapis_com:user_app_requests{monitored_resource=\"cloud_run_revision\"}[5m]))",
+          "legendFormat": "{{service}} {{route}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx ratio by route",
+      "description": "",
+      "id": 8,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "100 * sum by (service, route) (rate(logging_googleapis_com:user_app_requests{monitored_resource=\"cloud_run_revision\",status=~\"5..\"}[5m])) / sum by (service, route) (rate(logging_googleapis_com:user_app_requests{monitored_resource=\"cloud_run_revision\"}[5m]))",
+          "legendFormat": "{{service}} {{route}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency by route",
+      "description": "",
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 10
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, service, route) (rate(logging_googleapis_com:user_app_latency_bucket{monitored_resource=\"cloud_run_revision\"}[5m])))",
+          "legendFormat": "{{service}} {{route}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Why · errors, capacity, logs",
+      "collapsed": false,
+      "id": 10,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors/s by type (app_errors)",
+      "description": "",
+      "id": 11,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "sum by (service, error_type) (rate(logging_googleapis_com:user_app_errors{monitored_resource=\"cloud_run_revision\"}[5m]))",
+          "legendFormat": "{{service}} {{error_type}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Instances",
+      "description": "",
+      "id": 12,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "gcp-promql"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "0",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "gcp-promql"
+          },
+          "expr": "sum by (service_name, state) (run_googleapis_com:container_instance_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"})",
+          "legendFormat": "{{service_name}} {{state}}",
+          "interval": "60s"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "WARNING and ERROR logs · frontend + backend",
+      "id": 13,
+      "datasource": {
+        "type": "googlecloud-logging-datasource",
+        "uid": "gcp-logging"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "googlecloud-logging-datasource",
+            "uid": "gcp-logging"
+          },
+          "projectId": "",
+          "queryText": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=(\"frontend\" OR \"backend\") AND severity>=WARNING"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

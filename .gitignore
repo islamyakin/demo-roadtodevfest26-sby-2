@@ -1,0 +1,13 @@
+.env
+.mystery-answer
+__pycache__/
+.venv/
+*.pyc
+.DS_Store
+# Terraform: providers + state (state holds resource details; keep it local)
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+# Reference deck from another workshop, not ours to publish
+DevFest 26 Workshop 1 Slides.pdf
+infra/tfplan

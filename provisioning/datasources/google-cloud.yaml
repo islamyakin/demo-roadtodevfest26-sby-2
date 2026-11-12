@@ -1,0 +1,35 @@
+apiVersion: 1
+
+# AUTH: one credential for both = your gcloud login (ADC), no service-account key, no token to refresh.
+#   gcloud auth application-default login
+#   -> ~/.config/gcloud/application_default_credentials.json
+#   -> mounted read-only at /etc/gcp/adc.json in the grafana and gmp-frontend containers (docker-compose.yml)
+# Grafana can only read what your Google account may read (Monitoring Viewer + Logs Viewer is enough).
+# No native "Google Cloud Monitoring" data source: with ADC from a user login it cannot find the project
+# (it ignores defaultProject in gce mode). PromQL through gmp-frontend reads every Google Cloud metric anyway.
+datasources:
+  # AUTH: none here on purpose. Grafana calls the gmp-frontend container over the Docker network;
+  # gmp-frontend adds your ADC credentials to every request it forwards to Cloud Monitoring's PromQL API.
+  - name: Google Cloud (PromQL)
+    uid: gcp-promql
+    type: prometheus
+    access: proxy
+    url: http://gmp-frontend:19090
+    isDefault: true
+    jsonData:
+      httpMethod: GET
+      timeInterval: 60s
+      manageAlerts: false  # the frontend has no rules API; alert rules live in Grafana
+
+  # AUTH: authenticationType "gce" means "Application Default Credentials" (despite the name). The Google
+  # client library reads GOOGLE_APPLICATION_CREDENTIALS=/etc/gcp/adc.json, set in docker-compose.yml.
+  # gceDefaultProject: with "gce" the plugin takes the project from here; empty = ask the GCE metadata
+  # server, which does not exist on a laptop.
+  - name: Google Cloud Logging
+    uid: gcp-logging
+    type: googlecloud-logging-datasource
+    access: proxy
+    jsonData:
+      authenticationType: gce
+      defaultProject: ${GCP_PROJECT_ID}
+      gceDefaultProject: ${GCP_PROJECT_ID}

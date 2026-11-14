@@ -11,3 +11,6 @@ infra/.terraform/
 # Reference deck from another workshop, not ours to publish
 DevFest 26 Workshop 1 Slides.pdf
 infra/tfplan
+
+# Terraform variables (hold the Grafana token)
+infra/terraform.tfvars

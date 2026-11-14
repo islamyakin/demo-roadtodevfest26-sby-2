@@ -3,12 +3,13 @@
 **Accelerating Root Cause Analysis on Google Cloud with Grafana Assistant**
 Road to DevFest Cloud ’26 #2 · Surabaya · 90-minute workshop
 
-You deploy a two-service shop (`frontend` → `backend`) to Cloud Run, connect Grafana to Cloud Monitoring and
-Cloud Logging, then break the shop three times and use Grafana Assistant to find the root cause.
-The Assistant reads and queries; **you** decide and run the fix.
+You deploy a two-service shop (`frontend` → `backend`) to Cloud Run, connect **Grafana Cloud** to Cloud Monitoring
+and Cloud Logging, then break the shop three times and use Grafana Assistant to find the root cause.
+The Assistant reads and queries; **you** decide and run the fix. Nothing runs on your laptop except `gcloud`,
+`terraform` and `curl`: no Docker.
 
-- Slides: [slides/index.html](slides/index.html) (open in a browser, ← → to navigate).
-- Prompts to paste into the Assistant: [prompts/](prompts/).
+- Slides: [slides/workshop.pptx](slides/workshop.pptx) · [slides/workshop.pdf](slides/workshop.pdf)
+- Prompts to paste into the Assistant: [prompts/](prompts/)
 
 ## Architecture
 
@@ -26,17 +27,23 @@ The Assistant reads and queries; **you** decide and run the fix.
  Cloud Logging ──► log-based metrics app_requests · app_latency · app_errors   (per route + error_type)
  Cloud Monitoring ◄── Cloud Run built-ins: request_count · request_latencies · cpu · instances (per service)
    │
-   ├─► "Google Cloud (PromQL)"   uid gcp-promql  (via gmp-frontend container, signs with ADC)          ─┐
-   │                                                                                                     ├─► Grafana OSS 13.3 (Docker, laptop)
-   └─► "Google Cloud Logging"    (ADC)                                                                   ─┘     alert rules · Grafana Assistant
-                                                                                                                (Quick connect → free Grafana Cloud stack)
+   │                                Grafana Cloud (your stack)
+   ├─► PromQL API ◄──── "Google Cloud (PromQL)"  Prometheus data source, default ──┐
+   │        ▲                                                                      ├─ dashboard "Shop · Overview"
+   │        └── token refreshed by Cloud Run job "grafana-datasource-syncer"       ├─ 2 alert rules
+   │            (Google's datasource-syncer, Cloud Scheduler every 10 min)         └─ Grafana Assistant
+   └─► Logging API ◄─── "Google Cloud Logging"   Logging plugin, read-only key ──┘
 ```
 
-Everything in Google Cloud is created by Terraform ([infra/main.tf](infra/main.tf)): one image is built from `app/`
-with Cloud Build + buildpacks (no Docker needed for this), both services run it, and the `APP` env var picks the
-module via the `Procfile`. Region `asia-southeast2`. No service-account keys: Grafana uses
-your `gcloud` login: the ADC file is mounted read-only into Grafana and into `gmp-frontend`, Google’s Managed
-Prometheus frontend that serves Cloud Monitoring’s PromQL API to Grafana. Nothing to generate or refresh.
+Everything, on both sides, is created by one `terraform apply`:
+[infra/main.tf](infra/main.tf) (Google Cloud) and [infra/grafana.tf](infra/grafana.tf) (Grafana Cloud).
+One image is built from `app/` with Cloud Build + buildpacks; both services run it and the `APP` env var picks the
+module via the `Procfile`. Region `asia-southeast2`.
+
+**Why a Prometheus data source:** Grafana Assistant’s documented query languages are PromQL, LogQL, TraceQL and SQL,
+and Cloud Monitoring answers PromQL. So the Assistant gets Cloud Monitoring as plain PromQL. That data source needs a
+Google OAuth token, which Google’s own datasource-syncer renews every 10 min from a Cloud Run job: nobody generates
+tokens by hand.
 
 | Signal | PromQL name | Labels | Answers |
 |---|---|---|---|
@@ -48,55 +55,54 @@ Prometheus frontend that serves Cloud Monitoring’s PromQL API to Grafana. Noth
 | App latency (log-based, ms) | `logging_googleapis_com:user_app_latency_bucket` | `service`, `route`, `le` | which **route** is slow |
 | App errors (log-based) | `logging_googleapis_com:user_app_errors` | `service`, `error_type` | **what** error |
 
-Cloud Run metrics have no route label; that is why the log-based metrics exist. In PromQL every log-based metric
-selector needs `monitored_resource="cloud_run_revision"` (a log-based metric can belong to several resource types).
+Cloud Run metrics have no route label; that is why the log-based metrics exist. In PromQL every selector needs
+`monitored_resource="cloud_run_revision"` (these metrics can belong to several resource types).
 
-Dashboard **Shop · Overview** (`provisioning/dashboards/`, folder *Workshop*) is ready at start: per service (Cloud Run
-metrics), per route (log-based metrics), errors by type, instances, and WARNING/ERROR logs from both services.
+Dashboard **Shop · Overview** (folder *Workshop*): per service (Cloud Run metrics), per route (log-based metrics),
+errors by type, instances, and WARNING/ERROR logs from both services.
+Alerts (one instance per `service_name`): **5xx ratio above 5%** and **p95 latency above 1s**. Cloud Run metrics
+arrive every 60 s with a 2–3 min delay and the rules wait 2 min, so alerts fire **4–6 min after the load starts**.
+Start asking the Assistant before that.
 
-Alerts (`provisioning/alerting/services.yaml`, one instance per `service_name`): **5xx ratio above 5%** and
-**p95 latency above 1s**. Cloud Run metrics arrive every 60 s with a 2–3 min delay and the rules wait `for: 2m`, so
-alerts fire **4–6 min after the load starts**. Start asking the Assistant before that.
+## What gets created
 
-## What gets created in Google Cloud
+| Where | Resource | Name |
+|---|---|---|
+| Google Cloud | APIs | run, cloudbuild, artifactregistry, compute, logging, monitoring, cloudresourcemanager, iam, secretmanager, cloudscheduler |
+| Google Cloud | Artifact Registry | `shop` (the app image, built by Cloud Build) and `gke-gcr` (pull-through proxy for Google’s syncer image on gke.gcr.io: Cloud Run cannot pull from gke.gcr.io directly) |
+| Google Cloud | Cloud Run services | `frontend`, `backend` (private, 1 vCPU, 512 MiB, max 2 instances, concurrency 16) |
+| Google Cloud | Service accounts | `frontend-sa`, `backend-sa` (no project roles); `grafana-reader` (`monitoring.viewer`, `logging.viewer`) |
+| Google Cloud | IAM | `frontend-sa` → `run.invoker` on `backend` |
+| Google Cloud | Log-based metrics | `app_requests`, `app_latency`, `app_errors` |
+| Google Cloud | Token sync | Secret `grafana-sa-token`, Cloud Run job + Cloud Scheduler `grafana-datasource-syncer` |
+| Grafana Cloud | Data sources | `Google Cloud (PromQL)` (default), `Google Cloud Logging` |
+| Grafana Cloud | Dashboard, alerts | folder `Workshop`, `Shop · Overview`, rule group `shop` |
 
-All of it comes from `terraform apply` in [infra/main.tf](infra/main.tf):
-
-| Resource | Name |
-|---|---|
-| APIs | run, cloudbuild, artifactregistry, compute, logging, monitoring, cloudresourcemanager, iam |
-| Artifact Registry repo (container images) | `shop`, image `app:<hash of app/>` built by Cloud Build |
-| Service accounts | `frontend-sa`, `backend-sa` (no project roles) |
-| Cloud Run services | `frontend`, `backend` (private, 1 vCPU, 512 MiB, max 2 instances, concurrency 16) |
-| IAM binding | `frontend-sa` → `roles/run.invoker` on `backend` |
-| Log-based metrics | `app_requests`, `app_latency`, `app_errors` |
-| Side effect of the build | Cloud Storage bucket `<project-id>_cloudbuild` for the source upload |
-
-Nothing else: no VM, database, Pub/Sub or alert policies (alerts live in Grafana). `terraform destroy`
-removes it. Changing code in `app/` changes the image tag, so the next `terraform apply` rebuilds and
-redeploys. A `terraform apply` also undoes the lab mitigations (env vars set with gcloud): handy to re-arm an incident.
+The `Google Cloud Logging` data source uses a key of the read-only `grafana-reader` account (that plugin cannot use a
+refreshed token). The key goes straight from Terraform into Grafana Cloud and into your local Terraform state, never
+into git. Changing code in `app/` changes the image tag, so the next `terraform apply` rebuilds and redeploys.
+A `terraform apply` also undoes the lab mitigations (env vars set with gcloud): handy to re-arm an incident.
 
 ## Prerequisites
 
 | Need | Check |
 |---|---|
-| Google Cloud project with billing; you are Owner (or Editor + Cloud Run Admin, needed for the invoker binding) | `gcloud config set project <project-id>` |
-| gcloud, logged in (user + ADC, with quota project) | `gcloud auth login && gcloud auth application-default login && gcloud auth application-default set-quota-project <project-id>` |
-| Terraform ≥ 1.5 | `terraform version` |
-| Docker + Compose v2 (Grafana only) | `docker compose version` |
-| Free Grafana Cloud stack (for the Assistant) | grafana.com → sign up → create stack |
-
-Windows: use WSL and work in `~`. Cloud Shell works: Web Preview on port 3000.
-Required: `cp .env.example .env` and set `GCP_PROJECT_ID` (docker compose needs it; the scripts fall back to `gcloud config`).
+| Google Cloud project **with billing enabled**; you are Owner | `gcloud billing projects describe <project-id>` shows `billingEnabled: true` |
+| gcloud, logged in | `gcloud auth login && gcloud auth application-default login` |
+| Terraform ≥ 1.5 | `terraform version` (Cloud Shell has it) |
+| A Grafana Cloud stack with Grafana Assistant | grafana.com → your stack → open Grafana |
+| The Cloud Logging plugin in that stack | Grafana → Administration → Plugins and data → Plugins → “Google Cloud Logging” → Install |
+| A stack service account token, role **Admin** | Grafana → Administration → Users and access → Service accounts → Add → Add token |
 
 ## Deploy (Lab 0)
 
-Plain Terraform, no wrapper. The image is built by Cloud Build during `apply` (5–8 min the first time).
-
 ```bash
-terraform -chdir=infra init
-terraform -chdir=infra apply -var project_id=<project-id>    # review the plan, type yes
-./scripts/02-load.sh / 20                                     # expect 20 × 200
+cd infra
+cp terraform.tfvars.example terraform.tfvars   # set project_id, grafana_url, grafana_token
+terraform init
+terraform apply                                  # review the plan, type yes (first run 5–8 min)
+cd ..
+./scripts/02-load.sh / 20                        # expect 20 × 200
 ```
 
 ## Labs
@@ -105,8 +111,8 @@ terraform -chdir=infra apply -var project_id=<project-id>    # review the plan, 
 |---|---|---|---|---|
 | 0:00 | Talk (15′) | – | – | – |
 | 0:15 | 0 · Deploy the shop (10′) | deploy (above), then try `./scripts/02-load.sh /5xx 10`, `/queryslow`, `/slow` | – | `20 200` on `/`; a mix of `200`/`502` on `/5xx` |
-| 0:25 | 1 · Connect Grafana (10′) | `cp .env.example .env` (set `GCP_PROJECT_ID`; with colima/nerdctl also `GCP_ADC_FILE`) → `docker compose up -d` → http://localhost:3000 (admin/admin) → Plugins → Grafana Assistant → Connection → **Quick connect**; Connections → Data sources → each → **Save & test** | [lab1-orient.md](prompts/lab1-orient.md) | both Google Cloud data sources green; request rate per service; log lines from both services |
-| 0:35 | 2 · Dashboard by prompt (10′) | keep traffic for ~5 min: `./scripts/02-load.sh / 6000 2` | [lab2-dashboard.md](prompts/lab2-dashboard.md) | your own “Shop · RED” built by the Assistant; compare it with the provisioned “Shop · Overview” |
+| 0:25 | 1 · Explore Grafana Cloud (10′) | open your stack → Dashboards → Workshop → **Shop · Overview**; Explore with both data sources; open the Assistant (sidebar) | [lab1-orient.md](prompts/lab1-orient.md) | request rate per service; log lines from both services |
+| 0:35 | 2 · Dashboard by prompt (10′) | keep traffic for ~5 min: `./scripts/02-load.sh / 6000 2` | [lab2-dashboard.md](prompts/lab2-dashboard.md) | your own “Shop · RED” built by the Assistant; compare it with “Shop · Overview” |
 | 0:45 | 3 · Incident `/5xx` (12′) | `./scripts/03-incident.sh 5xx` | [lab3-rca.md](prompts/lab3-rca.md) | both alerts on **both** services (≈50% 5xx, p95 ≈ 1.5 s from the gateway timeout); follow the trace from the frontend 502 to the backend `PaymentGatewayTimeout` |
 | 0:57 | 4 · Incident `/queryslow` (12′) | `./scripts/03-incident.sh queryslow` | [lab3-rca.md](prompts/lab3-rca.md) | alert **p95 latency above 1s**, later some 5xx; CPU stays low |
 | 1:09 | 5 · Incident `/slow` (10′) | `./scripts/03-incident.sh slow` | [lab3-rca.md](prompts/lab3-rca.md) | frontend p95 high on **every** route, backend healthy |
@@ -145,35 +151,29 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 | `app/frontend.py` | routes `/`, `/5xx`, `/queryslow`, `/slow`; env `BACKEND_URL`, `RECO_ITEMS`, `RECO_CACHE` |
 | `app/backend.py` | routes `/`, `/pay`, `/query`; env `PAYMENT_GATEWAY`, `PAYMENT_FAILURE_RATE`, `PAYMENT_TIMEOUT_MS`, `DB_POOL_SIZE`, `DB_POOL_TIMEOUT_MS`, `ORDERS_INDEX` |
 | `app/Procfile`, `app/requirements.txt` | one image, `APP=frontend\|backend` picks the module |
-| `infra/main.tf` | Terraform: APIs, registry, image build, service accounts, both services, invoker binding, log-based metrics |
-| `scripts/env.sh` | shared names: project, region, service names, `service_url` |
+| `infra/main.tf` | Google Cloud: APIs, registry, image build, service accounts, both services, invoker binding, log-based metrics |
+| `infra/grafana.tf` | Grafana Cloud: read-only identity, 2 data sources, token syncer job + schedule, dashboard, alert rules |
+| `infra/shop-overview.json` | the “Shop · Overview” dashboard |
+| `infra/terraform.tfvars.example` | your project id, stack URL and token (copy to `terraform.tfvars`, gitignored) |
+| `scripts/env.sh` | shared names: project, region, service names, `service_url`, `hit` |
 | `scripts/02-load.sh` | `[route=/] [N=20] [C=5]` load + status-code count |
 | `scripts/03-incident.sh` | `<5xx\|queryslow\|slow\|mystery> [minutes=8]` |
-| `provisioning/datasources/google-cloud.yaml` | the 2 Google Cloud data sources |
-| `provisioning/dashboards/` | the ready-made “Shop · Overview” dashboard + its loader |
-| `provisioning/alerting/services.yaml` | the 2 alert rules |
-| `docker-compose.yml`, `.env.example` | Grafana 13.3 + Assistant + Cloud Logging plugin, `gmp-frontend` (Google’s PromQL proxy), ADC mount |
 | `prompts/` | Assistant prompts per lab |
-| `slides/index.html` | the deck |
+| `slides/workshop.pptx`, `slides/workshop.pdf` | the deck |
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| PromQL data source fails | `docker compose logs gmp-frontend`: usually ADC missing/expired (`gcloud auth application-default login`) or no quota project |
-| `permission denied` on `/etc/gcp/adc.json` (Linux/WSL) | the ADC file is mode 600 and the containers run as non-root: add `user: "0"` to `grafana` and `gmp-frontend` in `docker-compose.yml` |
-| Monitoring/Logging data source: auth or quota error | `gcloud auth application-default login` and `gcloud auth application-default set-quota-project <project-id>`, then `docker compose restart grafana` |
-| `GCP_PROJECT_ID` required (compose) | `cp .env.example .env` and set `GCP_PROJECT_ID=<project-id>` |
-| `02-load.sh` gets 401/403 | services are private: run `gcloud auth login` (the script sends your identity token); your user needs `roles/run.invoker` (Owner/Editor have it) |
-| Cloud Logging data source: `could not find default credentials` | Grafana hides host env vars from external plugins: keep `GF_PLUGINS_FORWARD_HOST_ENV_VARS=googlecloud-logging-datasource` in `docker-compose.yml` |
-| `is a directory` reading `/etc/gcp/adc.json` (colima/nerdctl) | compose runs inside the VM where `$HOME` is `/root`: set `GCP_ADC_FILE=/Users/<you>/.config/gcloud/application_default_credentials.json` in `.env` |
-| Backend returns 403 to the frontend (backend `request_count` shows `4xx`, no backend `request` log lines) | invoker binding missing: `gcloud run services add-iam-policy-binding backend --region asia-southeast2 --member serviceAccount:frontend-sa@<project-id>.iam.gserviceaccount.com --role roles/run.invoker` |
-| Image build (`gcloud builds submit`) fails on permissions | new projects: Cloud Build runs as the Compute Engine default service account; grant it once: `gcloud projects add-iam-policy-binding <project-id> --member serviceAccount:<project-number>-compute@developer.gserviceaccount.com --role roles/cloudbuild.builds.builder`, then run `terraform apply` again. Not in Terraform on purpose: `destroy` would revoke it from a shared project. |
+| `Billing account … is not found` when enabling an API, or Cloud Run answers 500/503 | billing is off for the project: link a billing account (Console → Billing), then `terraform apply` again |
+| `Google Cloud (PromQL)` data source: 401 / no data | run the syncer now: `gcloud run jobs execute grafana-datasource-syncer --region asia-southeast2 --wait`, then check its logs in Cloud Run → Jobs |
+| `terraform apply` fails on `grafana_data_source.logging` | the Cloud Logging plugin is not installed in your stack yet (Prerequisites) |
+| `02-load.sh` gets 401/403 | services are private: run `gcloud auth login` (the script sends your identity token); your user needs `roles/run.invoker` (Owner has it) |
+| Backend returns 403 to the frontend | invoker binding missing: `terraform apply` again, or wait a minute for IAM to propagate |
+| Image build (`gcloud builds submit`) fails on permissions | new projects: Cloud Build runs as the Compute Engine default service account; grant it once: `gcloud projects add-iam-policy-binding <project-id> --member serviceAccount:<project-number>-compute@developer.gserviceaccount.com --role roles/cloudbuild.builds.builder`, then `terraform apply` again. Not in Terraform on purpose: `destroy` would revoke it from a shared project. |
 | `terraform apply` fails right after enabling APIs | API enablement is eventually consistent: wait a minute and run `terraform apply` again |
 | Log-based metric panels empty | they only count lines written after `terraform apply` created them, and lag 1–3 min; send load again |
-| Assistant menu missing | Grafana must be ≥ 13.1; Quick connect expires after 5 min; one Cloud stack per Grafana instance |
 | Assistant can’t query Cloud Logging directly | Explore → Google Cloud Logging, run the filter, then ask the Assistant about what is on screen; or use PromQL `logging_googleapis_com:user_app_errors{monitored_resource="cloud_run_revision"}` |
-| Org policy blocks public services | already handled: both services are private |
 
 ## Guardrails
 
@@ -181,17 +181,15 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 - Evidence first: ask for the query and result behind every claim, and read it before you act. No evidence, no claim.
 - One safe, reversible mitigation at a time (an env var you can remove), then check the metrics recover.
 - Prompts and query results go to the Assistant backend in Grafana Cloud: check your data policy before using it on production data.
-- Self-managed Grafana + Assistant: no Investigations, no Slack integration.
+- In Grafana Cloud you can also try **Investigations** (multi-agent RCA) on top of the prompts here.
 
 ## Cleanup
 
 ```bash
-terraform -chdir=infra destroy -var project_id=<project-id>
-docker compose down -v
+terraform -chdir=infra destroy
 rm -f .mystery-answer
 ```
 
-`terraform destroy` deletes both services, both service accounts, the invoker binding, the three log-based metrics
-and the `shop` registry with its images; `docker compose down -v` removes the local Grafana containers/volumes. Enabled APIs stay on (free). Then disconnect the Grafana Cloud stack under
-Plugins → Grafana Assistant → Connection if you no longer need it. The Cloud Build source bucket
-(`<project-id>_cloudbuild`) stays; delete it in Cloud Storage if you want a clean project.
+`terraform destroy` deletes everything in the table under “What gets created”, on both sides. Enabled APIs stay on
+(free). The Cloud Build source bucket (`<project-id>_cloudbuild`) stays; delete it in Cloud Storage if you want a clean
+project. Your Grafana Cloud stack itself is not touched.

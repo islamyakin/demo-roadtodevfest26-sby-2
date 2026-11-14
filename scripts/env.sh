@@ -1,7 +1,6 @@
 # Shared names for every script. Sourced, not run.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-set -a; [ -f "$ROOT/.env" ] && . "$ROOT/.env"; set +a
 
 export GCP_PROJECT_ID="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}"
 [ -n "$GCP_PROJECT_ID" ] || { echo "Set a project: gcloud config set project <id>"; exit 1; }

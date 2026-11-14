@@ -10,5 +10,5 @@ DOCKER="${DOCKER:-$(command -v docker >/dev/null && echo docker || echo nerdctl)
 
 for app in frontend backend; do
   echo "== $USER_NS/shop-$app:$TAG (linux/amd64)"
-  "$DOCKER" build --platform linux/amd64 --build-arg APP="$app" -t "$USER_NS/shop-$app:$TAG" "$ROOT/app"
+  "$DOCKER" build --platform linux/amd64 -f "$ROOT/app/Dockerfile.$app" -t "$USER_NS/shop-$app:$TAG" "$ROOT/app"
 done

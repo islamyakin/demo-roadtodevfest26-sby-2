@@ -122,8 +122,8 @@ organization forbids service-account keys (`iam.disableServiceAccountKeyCreation
 
 ## Container images (Docker Hub)
 
-Both apps also ship as `linux/amd64` images, built from [app/Dockerfile](app/Dockerfile) (non-root, same gunicorn
-settings as on Cloud Run):
+Both apps also ship as `linux/amd64` images, built from [app/Dockerfile.frontend](app/Dockerfile.frontend) and
+[app/Dockerfile.backend](app/Dockerfile.backend) (non-root, same gunicorn settings as on Cloud Run):
 
 ```bash
 ./scripts/build-images.sh <dockerhub-user> [tag]     # docker or nerdctl (colima); amd64 even on Apple silicon
@@ -181,7 +181,7 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 | `app/frontend.py` | routes `/`, `/5xx`, `/queryslow`, `/slow`; env `BACKEND_URL`, `RECO_ITEMS`, `RECO_CACHE` |
 | `app/backend.py` | routes `/`, `/pay`, `/query`; env `PAYMENT_GATEWAY`, `PAYMENT_FAILURE_RATE`, `PAYMENT_TIMEOUT_MS`, `DB_POOL_SIZE`, `DB_POOL_TIMEOUT_MS`, `ORDERS_INDEX` |
 | `app/Procfile`, `app/requirements.txt` | one image, `APP=frontend\|backend` picks the module |
-| `app/Dockerfile`, `scripts/build-images.sh` | the two `linux/amd64` images for Docker Hub |
+| `app/Dockerfile.frontend`, `app/Dockerfile.backend`, `scripts/build-images.sh` | the two `linux/amd64` images for Docker Hub |
 | `infra/main.tf` | Google Cloud: APIs, registry, image build, service accounts, both services, invoker binding, log-based metrics |
 | `infra/variables.tf`, `infra/terraform.tfvars.example` | inputs: `project_id`, `region`, `grafana_key` |
 | `infra/grafana-reader.tf` | read-only account for Grafana + its key file `grafana-reader.json` |

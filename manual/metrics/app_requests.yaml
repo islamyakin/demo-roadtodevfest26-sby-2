@@ -1,0 +1,14 @@
+name: app_requests
+description: Requests per service, route and status, from the app's request log line
+filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name=("frontend" OR "backend") AND jsonPayload.message="request"'
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  labels:
+    - key: service
+    - key: route
+    - key: status
+labelExtractors:
+  service: EXTRACT(jsonPayload.service)
+  route: EXTRACT(jsonPayload.route)
+  status: EXTRACT(jsonPayload.status)

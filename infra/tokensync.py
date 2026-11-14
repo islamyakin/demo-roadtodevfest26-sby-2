@@ -33,10 +33,12 @@ token = call("POST", f"https://iamcredentials.googleapis.com/v1/projects/-/servi
              base_token, {"scope": ["https://www.googleapis.com/auth/cloud-platform"], "lifetime": "3600s"})["accessToken"]
 
 # 3. Write it into both data sources (GET the current model, change the auth part, PUT it back).
-for uid in ("gcp-promql", "gcp-logging"):
+promql_uid = os.environ.get("PROMQL_UID", "gcp-promql")
+logging_uid = os.environ.get("LOGGING_UID", "gcp-logging")  # empty = leave Cloud Logging alone (JWT setup)
+for uid in filter(None, (promql_uid, logging_uid)):
     ds = call("GET", f"{grafana}/api/datasources/uid/{uid}", grafana_token)
     ds.setdefault("jsonData", {})
-    if uid == "gcp-promql":
+    if uid == promql_uid:
         ds["url"] = f"https://monitoring.googleapis.com/v1/projects/{project}/location/global/prometheus/"
         ds["jsonData"]["httpHeaderName1"] = "Authorization"
         ds["secureJsonData"] = {"httpHeaderValue1": f"Bearer {token}"}

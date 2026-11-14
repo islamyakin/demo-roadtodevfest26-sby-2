@@ -1,0 +1,12 @@
+name: app_errors
+description: ERROR log entries per service and error_type
+filter: 'resource.type="cloud_run_revision" AND resource.labels.service_name=("frontend" OR "backend") AND severity>=ERROR AND jsonPayload.error_type:*'
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  labels:
+    - key: service
+    - key: error_type
+labelExtractors:
+  service: EXTRACT(jsonPayload.service)
+  error_type: EXTRACT(jsonPayload.error_type)

@@ -69,15 +69,17 @@ gcloud iam service-accounts create grafana-reader --display-name "Grafana reader
 
 GRAFANA_SA="grafana-reader@$PROJECT_ID.iam.gserviceaccount.com"
 for r in roles/monitoring.viewer roles/logging.viewer roles/logging.viewAccessor; do
-  until gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "serviceAccount:$GRAFANA_SA" \
-        --role "$r" --condition=None >/dev/null; do sleep 5; done
-  echo "granted $r"
+  for i in 1 2 3 4 5; do
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" --member "serviceAccount:$GRAFANA_SA" \
+      --role "$r" --condition=None >/dev/null && { echo "granted $r"; break; }
+    echo "  retry $r ($i/5)..."; sleep 5
+  done
 done
 ```
 
-Yang diharapkan: tiga baris `Service account email: …` lalu tiga baris `granted roles/…`. Loop `until` mengulang
-grant yang gagal: tiga perubahan IAM berturut-turut kadang bentrok (*concurrent policy changes*); di uji coba,
-grant kedua sempat gagal sekali.
+Yang diharapkan: tiga baris `Service account email: …` lalu tiga baris `granted roles/…`. Grant yang gagal diulang
+maksimal 5 kali (tiga perubahan IAM berturut-turut kadang bentrok, *concurrent policy changes*). Kalau `$PROJECT_ID`
+kosong, semua percobaan gagal dengan `grafana-reader@.iam…`: jalankan lagi baris `export` di Fase 0.
 
 Cek:
 

@@ -1,3 +1,4 @@
 # cp terraform.tfvars.example terraform.tfvars
 project_id = "your-project-id"
-# region   = "asia-southeast2"
+# region      = "asia-southeast2"
+# grafana_key = false   # if your organization forbids service-account keys

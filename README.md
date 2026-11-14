@@ -77,9 +77,9 @@ Start asking the Assistant before that.
 | Service accounts | `frontend-sa`, `backend-sa` (no project roles) |
 | IAM | `frontend-sa` → `run.invoker` on `backend` |
 | Log-based metrics | `app_requests`, `app_latency`, `app_errors` |
+| Grafana’s identity | service account `grafana-reader` (`monitoring.viewer`, `logging.viewer`, `logging.viewAccessor`) and, unless `grafana_key = false`, its key file `grafana-reader.json` in the repo root (mode 0600, gitignored) |
 
-When the Grafana side is turned on it adds: the `grafana-reader` account (`monitoring.viewer`, `logging.viewer`), the
-secret `grafana-sa-token`, the Cloud Run job + Cloud Scheduler `grafana-token-sync`, and in Grafana Cloud the two data
+When the Grafana side is turned on it adds: the `grafana-sa-token`, the Cloud Run job + Cloud Scheduler `grafana-token-sync`, and in Grafana Cloud the two data
 sources, the folder `Workshop`, the dashboard and the rule group `shop`. Changing code in `app/` changes the image tag, so the next `terraform apply` rebuilds and redeploys.
 A `terraform apply` also undoes the lab mitigations (env vars set with gcloud): handy to re-arm an incident.
 
@@ -104,6 +104,21 @@ terraform apply                                  # review the plan, type yes (fi
 cd ..
 ./scripts/02-load.sh / 20                        # expect 20 × 200
 ```
+
+## Connect Grafana Cloud (key file, by hand)
+
+`terraform apply` writes the key of the read-only account `grafana-reader` to **`grafana-reader.json`** in the repo
+root. That file is the “JWT” Grafana asks for. Terraform does not send it anywhere; you upload it:
+
+1. Grafana → **Connections → Data sources → Add data source → Google Cloud Monitoring**
+2. **Authentication: Google JWT File** → upload `grafana-reader.json` → **Save & test**
+3. Same for **Google Cloud Logging** (install that plugin first), same file
+4. Dashboards → New → Import → upload [infra/shop-overview.json](infra/shop-overview.json)
+
+Keep the file secret and delete it after the workshop (`terraform destroy` also deletes the key itself). If your
+organization forbids service-account keys (`iam.disableServiceAccountKeyCreation`), set `grafana_key = false` in
+`terraform.tfvars`: the apply then succeeds without a key, and the keyless token route in
+[infra/grafana.tf.disabled](infra/grafana.tf.disabled) is the way in.
 
 ## Labs
 
@@ -152,7 +167,8 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 | `app/backend.py` | routes `/`, `/pay`, `/query`; env `PAYMENT_GATEWAY`, `PAYMENT_FAILURE_RATE`, `PAYMENT_TIMEOUT_MS`, `DB_POOL_SIZE`, `DB_POOL_TIMEOUT_MS`, `ORDERS_INDEX` |
 | `app/Procfile`, `app/requirements.txt` | one image, `APP=frontend\|backend` picks the module |
 | `infra/main.tf` | Google Cloud: APIs, registry, image build, service accounts, both services, invoker binding, log-based metrics |
-| `infra/variables.tf`, `infra/terraform.tfvars.example` | inputs: `project_id`, `region` |
+| `infra/variables.tf`, `infra/terraform.tfvars.example` | inputs: `project_id`, `region`, `grafana_key` |
+| `infra/grafana-reader.tf` | read-only account for Grafana + its key file `grafana-reader.json` |
 | `infra/grafana.tf.disabled`, `infra/tokensync.py` | Grafana Cloud side (off for now): read-only identity, 2 data sources, token sync job, dashboard, alert rules |
 | `infra/shop-overview.json` | the “Shop · Overview” dashboard |
 | `scripts/env.sh` | shared names: project, region, service names, `service_url`, `hit` |

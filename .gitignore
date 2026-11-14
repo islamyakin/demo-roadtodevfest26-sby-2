@@ -14,3 +14,7 @@ infra/tfplan
 
 # Terraform variables (hold the Grafana token)
 infra/terraform.tfvars
+
+# Service-account key files (the Grafana "JWT")
+grafana-reader.json
+*-key.json

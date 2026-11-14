@@ -18,20 +18,7 @@ provider "grafana" {
   auth = var.grafana_token
 }
 
-# ---------- The identity Grafana Cloud uses on Google Cloud: read-only ----------
-
-resource "google_service_account" "grafana" {
-  account_id   = "grafana-reader"
-  display_name = "Grafana Cloud reader (workshop)"
-  depends_on   = [google_project_service.apis]
-}
-
-resource "google_project_iam_member" "grafana" {
-  for_each = toset(["roles/monitoring.viewer", "roles/logging.viewer"])
-  project  = var.project_id
-  role     = each.key
-  member   = "serviceAccount:${google_service_account.grafana.email}"
-}
+# The read-only account google_service_account.grafana and its roles live in grafana-reader.tf.
 
 # The job mints fresh 1-hour tokens for itself (generateAccessToken on its own account).
 resource "google_service_account_iam_member" "grafana_self_token" {

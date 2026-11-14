@@ -9,13 +9,13 @@ Which data sources do I have? For each one, say in one line what it can answer a
 
 ---
 
-Using "Google Cloud (PromQL)", show requests per second per service and response_code_class over the last 30 minutes:
+Using the "Google Cloud Monitoring" data source with a PromQL query, show requests per second per service and response_code_class over the last 30 minutes:
 `sum by (service_name, response_code_class) (rate(run_googleapis_com:request_count{monitored_resource="cloud_run_revision", service_name=~"frontend|backend"}[5m]))`.
 Explain the query, and tell me why `frontend` and `backend` have about the same rate.
 
 ---
 
-Cloud Run metrics have no route label. Using "Google Cloud (PromQL)", show the same per route from the log-based metric:
+Cloud Run metrics have no route label. Using "Google Cloud Monitoring" (PromQL), show the same per route from the log-based metric:
 `sum by (service, route, status) (rate(logging_googleapis_com:user_app_requests{monitored_resource="cloud_run_revision"}[5m]))`.
 (Log-based metrics need the `monitored_resource="cloud_run_revision"` matcher in PromQL.)
 Which routes exist on each service?

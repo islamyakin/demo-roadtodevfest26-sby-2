@@ -1,7 +1,7 @@
 # Lab 2 · Dashboard by prompt (paste into Grafana Assistant)
 
 A ready-made dashboard "Shop · Overview" already exists in the folder "Workshop". Build your own next to it, so you
-learn the queries: create a dashboard called "Shop · RED" in the folder "Workshop", data source "Google Cloud (PromQL)"
+learn the queries: create a dashboard called "Shop · RED" in the folder "Workshop", data source "Google Cloud Monitoring" (query type PromQL)
 unless noted.
 Services: Cloud Run `frontend` and `backend`. Use a 60s minimum interval and `[5m]` rate windows
 (Cloud Run metrics arrive every minute with a 2–3 min delay).

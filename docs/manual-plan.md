@@ -26,6 +26,7 @@ sungguhan di project `devfest-514313` pada 14 Nov 2026 dan berhasil; output yang
 export PROJECT_ID=devfest-514313
 export REGION=asia-southeast2
 gcloud config set project "$PROJECT_ID"
+gcloud services enable cloudbilling.googleapis.com cloudresourcemanager.googleapis.com   # gratis; dibutuhkan cek di bawah
 ```
 
 Billing harus aktif:
@@ -191,12 +192,12 @@ Yang diharapkan: PromQL `"status":"success"` dengan angka per `service_name`; Lo
 
 1. **Plugin** · Administration → Plugins and data → Plugins → **Google Cloud Logging** → Install.
 2. **Data source Cloud Monitoring** · Connections → Data sources → Add new data source → **Google Cloud Monitoring**
-   → Authentication: **Google JWT File** → upload `grafana-reader.json` → default project `devfest-514313`
+   → Authentication: **Google JWT File** → upload `grafana-reader.json` (field *Project ID* terisi otomatis dari file)
    → **Save & test** (harus hijau).
 3. **Data source Cloud Logging** · Add new data source → **Google Cloud Logging** → **Google JWT File** → file yang
    sama → **Save & test**.
 4. **Dashboard** · Dashboards → New → **Import** → upload [`manual/shop-overview.json`](../manual/shop-overview.json)
-   → pilih kedua data source, isi project ID → folder **Workshop** → Import.
+   → pilih kedua data source, isi project ID (dipakai variabel dashboard `$project`) → folder **Workshop** → Import.
 5. **Alert rules** · Alerting → Alert rules → **New alert rule**, dua kali:
 
 | Field | Rule 1 | Rule 2 |
@@ -206,6 +207,7 @@ Yang diharapkan: PromQL `"status":"success"` dengan angka per `service_name`; Lo
 | Expressions | B = **Reduce** (Last) dari A · C = **Threshold**: B **is above 0.05** (alert condition) | sama, **is above 1000** |
 | Folder / group | `Workshop` / `shop`, evaluate every **1m** | sama |
 | Pending period | **2m** | **2m** |
+| No data handling | **Normal** (tanpa error 5xx, query rule 1 memang kosong) | **Normal** |
 | Labels / summary | `severity=page` · `{{ $labels.service_name }}: more than 5% of requests fail with 5xx.` | `severity=page` · `{{ $labels.service_name }}: p95 latency is above 1000 ms.` |
 
 ```promql
@@ -219,8 +221,9 @@ histogram_quantile(0.95, sum by (le, service_name) (rate(run_googleapis_com:requ
 
 ## 9 · Dry run Grafana Assistant (wajib)
 
-Dokumentasi Grafana menyebut Assistant mendukung PromQL, LogQL, TraceQL, dan SQL, tetapi **tidak menyebut** data
-source Google Cloud Monitoring secara eksplisit. Uji dulu:
+**Keputusan: jalur JWT saja.** Tabel *Supported data sources* Grafana Assistant memuat Prometheus, BigQuery, Infinity,
+dan lain-lain, tetapi **tidak** Google Cloud Monitoring maupun Google Cloud Logging. Jadi Assistant kemungkinan tidak
+bisa menjalankan query sendiri ke kedua data source ini. Uji supaya tahu pasti apa yang akan dialami peserta:
 
 1. Kirim load: `./scripts/02-load.sh /5xx 200 8`, tunggu 3 menit.
 2. Tanya Assistant: *“Using the Google Cloud Monitoring data source and a PromQL query, show requests per second per
@@ -228,11 +231,10 @@ source Google Cloud Monitoring secara eksplisit. Uji dulu:
    result.”*
 3. Tanya: *“Using Google Cloud Logging, find the last 5 ERROR entries from service backend.”*
 
-| Hasil | Lanjut |
+| Hasil | Yang diberitahukan ke peserta |
 |---|---|
-| Kedua jawaban berisi query + angka/log nyata | Siap. Pakai prompt di `prompts/` |
-| Assistant tidak bisa query Cloud Monitoring | Pasang **Lampiran B** (data source Prometheus + token sync) |
-| Assistant tidak bisa query Cloud Logging | Peserta menjalankan filter di Explore lalu bertanya ke Assistant tentang hasilnya |
+| Assistant menjalankan query dan menjawab dengan angka/log nyata | Pakai prompt di `prompts/` apa adanya |
+| Assistant tidak bisa menjalankan query | Alur di panduan peserta: Assistant **menulis** query → peserta menjalankannya di **Explore** → tanya Assistant tentang hasil di layar |
 
 ## 10 · Selama workshop
 
@@ -286,9 +288,10 @@ Di Grafana Cloud: hapus kedua data source, dashboard, dan folder **Workshop** (b
 | `google_service_account_key.grafana` → `grafana-reader.json` | Fase 7 |
 | `grafana.tf.disabled` (data source, dashboard, alert) | Fase 8 (UI) |
 
-## Lampiran B · Fallback: data source Prometheus + token sync
+## Lampiran B · (tidak dipakai) Data source Prometheus + token sync
 
-Hanya kalau Fase 9 menunjukkan Assistant tidak bisa query data source Google Cloud Monitoring. Data source Prometheus
+**Tidak dipakai: keputusan workshop adalah jalur JWT saja.** Disimpan sebagai referensi kalau suatu saat Assistant
+harus bisa menjalankan PromQL sendiri. Data source Prometheus
 tidak bisa memakai JWT; ia butuh header `Authorization: Bearer <token>` berumur 1 jam, yang diperbarui tiap 10 menit
 oleh Cloud Run job [`infra/tokensync.py`](../infra/tokensync.py).
 
@@ -308,8 +311,8 @@ gcloud iam service-accounts add-iam-policy-binding "$GRAFANA_SA" --member "servi
   --role roles/iam.serviceAccountTokenCreator
 
 # token Grafana dan skripnya di Secret Manager (skrip di-mount sebagai file)
-read -rs -p "Grafana service account token: " GT; echo
-printf '%s' "$GT" | gcloud secrets create grafana-sa-token --data-file=-
+printf 'Grafana service account token: '; read -rs GT; echo       # jalan di bash dan zsh
+[ -n "$GT" ] && printf '%s' "$GT" | gcloud secrets create grafana-sa-token --data-file=- || echo "TOKEN KOSONG, ulangi"
 gcloud secrets create tokensync-script --data-file=infra/tokensync.py
 for s in grafana-sa-token tokensync-script; do
   gcloud secrets add-iam-policy-binding "$s" --member "serviceAccount:$GRAFANA_SA" --role roles/secretmanager.secretAccessor

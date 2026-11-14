@@ -9,7 +9,8 @@ The Assistant reads and queries; **you** decide and run the fix. Nothing runs on
 `terraform` and `curl`: no Docker.
 
 - Slides: [slides/workshop.pptx](slides/workshop.pptx) · [slides/workshop.pdf](slides/workshop.pdf)
-- **Manual setup without Terraform** (IAM, Cloud Run, Grafana Cloud, step by step, tested): [docs/manual-plan.md](docs/manual-plan.md)
+- **Participants start here** (Bahasa Indonesia, from linking the credit to clean up): [docs/participant-guide.md](docs/participant-guide.md)
+- **Facilitator runbook** without Terraform (IAM, Cloud Run, Grafana Cloud, dry run, tested): [docs/manual-plan.md](docs/manual-plan.md)
 - Prompts to paste into the Assistant: [prompts/](prompts/)
 - Docker images: [`nurulyakin/shop-frontend`](https://hub.docker.com/r/nurulyakin/shop-frontend), [`nurulyakin/shop-backend`](https://hub.docker.com/r/nurulyakin/shop-backend) (linux/amd64, see [Container images](#container-images-docker-hub))
 

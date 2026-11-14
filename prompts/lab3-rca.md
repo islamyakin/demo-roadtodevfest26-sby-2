@@ -9,7 +9,7 @@ Start right after `./scripts/03-incident.sh <case>`; don't wait for the alert (i
 
 You are an SRE helping me investigate an incident on two Cloud Run services in asia-southeast2:
 `frontend` (routes /, /5xx, /queryslow, /slow) calls `backend` (routes /, /pay, /query).
-Data sources: "Google Cloud (PromQL)" (Cloud Run metrics `run_googleapis_com:*` per service_name; log-based metrics
+Data sources: "Google Cloud Monitoring", queried with PromQL (Cloud Run metrics `run_googleapis_com:*` per service_name; log-based metrics
 `logging_googleapis_com:user_app_requests{service,route,status}`, `logging_googleapis_com:user_app_latency_bucket{service,route}`,
 `logging_googleapis_com:user_app_errors{service,error_type}`, each needs the matcher `monitored_resource="cloud_run_revision"`) and
 "Google Cloud Logging" (frontend and backend lines of one request share `trace`). If you cannot query Google Cloud

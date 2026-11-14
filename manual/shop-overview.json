@@ -19,9 +19,9 @@
     {
       "name": "VAR_PROJECT",
       "label": "Google Cloud project ID",
-      "description": "e.g. devfest-514313",
+      "description": "your Google Cloud project ID",
       "type": "constant",
-      "value": "devfest-514313"
+      "value": ""
     }
   ],
   "__requires": [
@@ -115,8 +115,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m]))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -168,8 +172,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "100 * sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\",response_code_class=\"5xx\"}[5m])) / sum by (service_name) (rate(run_googleapis_com:request_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m]))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -221,8 +229,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(run_googleapis_com:request_latencies_bucket{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m])))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -274,8 +286,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(run_googleapis_com:container_cpu_utilizations_bucket{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"}[5m])))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -340,8 +356,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "sum by (service, route) (rate(logging_googleapis_com:user_app_requests{monitored_resource=\"cloud_run_revision\"}[5m]))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -393,8 +413,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "100 * sum by (service, route) (rate(logging_googleapis_com:user_app_requests{monitored_resource=\"cloud_run_revision\",status=~\"5..\"}[5m])) / sum by (service, route) (rate(logging_googleapis_com:user_app_requests{monitored_resource=\"cloud_run_revision\"}[5m]))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -446,8 +470,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "histogram_quantile(0.95, sum by (le, service, route) (rate(logging_googleapis_com:user_app_latency_bucket{monitored_resource=\"cloud_run_revision\"}[5m])))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -512,8 +540,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "sum by (service, error_type) (rate(logging_googleapis_com:user_app_errors{monitored_resource=\"cloud_run_revision\"}[5m]))",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -565,8 +597,12 @@
           "queryType": "promQL",
           "promQLQuery": {
             "expr": "sum by (service_name, state) (run_googleapis_com:container_instance_count{monitored_resource=\"cloud_run_revision\",service_name=~\"frontend|backend\"})",
-            "projectName": "${VAR_PROJECT}",
+            "projectName": "$project",
             "step": "60s"
+          },
+          "timeSeriesList": {
+            "projectName": "$project",
+            "crossSeriesReducer": "REDUCE_NONE"
           }
         }
       ]
@@ -598,14 +634,27 @@
             "type": "googlecloud-logging-datasource",
             "uid": "${DS_LOGS}"
           },
-          "projectId": "${VAR_PROJECT}",
+          "projectId": "$project",
           "queryText": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=(\"frontend\" OR \"backend\") AND severity>=WARNING"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "type": "constant",
+        "name": "project",
+        "label": "Project",
+        "hide": 2,
+        "query": "${VAR_PROJECT}",
+        "current": {
+          "text": "${VAR_PROJECT}",
+          "value": "${VAR_PROJECT}"
+        },
+        "options": []
+      }
+    ]
   },
   "annotations": {
     "list": []

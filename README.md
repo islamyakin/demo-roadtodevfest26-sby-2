@@ -29,21 +29,24 @@ The Assistant reads and queries; **you** decide and run the fix. Nothing runs on
    │
    │                                Grafana Cloud (your stack)
    ├─► PromQL API ◄──── "Google Cloud (PromQL)"  Prometheus data source, default ──┐
-   │        ▲                                                                      ├─ dashboard "Shop · Overview"
-   │        └── token refreshed by Cloud Run job "grafana-datasource-syncer"       ├─ 2 alert rules
-   │            (Google's datasource-syncer, Cloud Scheduler every 10 min)         └─ Grafana Assistant
-   └─► Logging API ◄─── "Google Cloud Logging"   Logging plugin, read-only key ──┘
+   │                                                                               ├─ dashboard "Shop · Overview"
+   │      both with a short-lived token of the read-only account grafana-reader    ├─ 2 alert rules
+   │      (Cloud Run job "grafana-token-sync", every 10 min; no keys)              └─ Grafana Assistant
+   └─► Logging API ◄─── "Google Cloud Logging"   Logging plugin ─────────────────┘
 ```
 
-Everything, on both sides, is created by one `terraform apply`:
-[infra/main.tf](infra/main.tf) (Google Cloud) and [infra/grafana.tf](infra/grafana.tf) (Grafana Cloud).
+Terraform ([infra/main.tf](infra/main.tf)) creates the Google Cloud side.
+**The Grafana Cloud side is disabled for now**: it is ready in
+[infra/grafana.tf.disabled](infra/grafana.tf.disabled) (data sources, token sync job, dashboard, alert rules) and the
+file header says how to turn it on.
 One image is built from `app/` with Cloud Build + buildpacks; both services run it and the `APP` env var picks the
 module via the `Procfile`. Region `asia-southeast2`.
 
 **Why a Prometheus data source:** Grafana Assistant’s documented query languages are PromQL, LogQL, TraceQL and SQL,
-and Cloud Monitoring answers PromQL. So the Assistant gets Cloud Monitoring as plain PromQL. That data source needs a
-Google OAuth token, which Google’s own datasource-syncer renews every 10 min from a Cloud Run job: nobody generates
-tokens by hand.
+and Cloud Monitoring answers PromQL. So the Assistant gets Cloud Monitoring as plain PromQL. Both Google data sources
+authenticate with a 1-hour access token of the read-only account `grafana-reader`, renewed every 10 min by a small
+Cloud Run job ([infra/tokensync.py](infra/tokensync.py)). No service-account keys: the organization forbids them
+(`iam.disableServiceAccountKeyCreation`), and nobody generates tokens by hand.
 
 | Signal | PromQL name | Labels | Answers |
 |---|---|---|---|
@@ -66,21 +69,18 @@ Start asking the Assistant before that.
 
 ## What gets created
 
-| Where | Resource | Name |
-|---|---|---|
-| Google Cloud | APIs | run, cloudbuild, artifactregistry, compute, logging, monitoring, cloudresourcemanager, iam, secretmanager, cloudscheduler |
-| Google Cloud | Artifact Registry | `shop` (the app image, built by Cloud Build) and `gke-gcr` (pull-through proxy for Google’s syncer image on gke.gcr.io: Cloud Run cannot pull from gke.gcr.io directly) |
-| Google Cloud | Cloud Run services | `frontend`, `backend` (private, 1 vCPU, 512 MiB, max 2 instances, concurrency 16) |
-| Google Cloud | Service accounts | `frontend-sa`, `backend-sa` (no project roles); `grafana-reader` (`monitoring.viewer`, `logging.viewer`) |
-| Google Cloud | IAM | `frontend-sa` → `run.invoker` on `backend` |
-| Google Cloud | Log-based metrics | `app_requests`, `app_latency`, `app_errors` |
-| Google Cloud | Token sync | Secret `grafana-sa-token`, Cloud Run job + Cloud Scheduler `grafana-datasource-syncer` |
-| Grafana Cloud | Data sources | `Google Cloud (PromQL)` (default), `Google Cloud Logging` |
-| Grafana Cloud | Dashboard, alerts | folder `Workshop`, `Shop · Overview`, rule group `shop` |
+| Resource | Name |
+|---|---|
+| APIs | run, cloudbuild, artifactregistry, compute, logging, monitoring, cloudresourcemanager, iam |
+| Artifact Registry | `shop` (the app image, built by Cloud Build) |
+| Cloud Run services | `frontend`, `backend` (private, 1 vCPU, 512 MiB, max 2 instances, concurrency 16) |
+| Service accounts | `frontend-sa`, `backend-sa` (no project roles) |
+| IAM | `frontend-sa` → `run.invoker` on `backend` |
+| Log-based metrics | `app_requests`, `app_latency`, `app_errors` |
 
-The `Google Cloud Logging` data source uses a key of the read-only `grafana-reader` account (that plugin cannot use a
-refreshed token). The key goes straight from Terraform into Grafana Cloud and into your local Terraform state, never
-into git. Changing code in `app/` changes the image tag, so the next `terraform apply` rebuilds and redeploys.
+When the Grafana side is turned on it adds: the `grafana-reader` account (`monitoring.viewer`, `logging.viewer`), the
+secret `grafana-sa-token`, the Cloud Run job + Cloud Scheduler `grafana-token-sync`, and in Grafana Cloud the two data
+sources, the folder `Workshop`, the dashboard and the rule group `shop`. Changing code in `app/` changes the image tag, so the next `terraform apply` rebuilds and redeploys.
 A `terraform apply` also undoes the lab mitigations (env vars set with gcloud): handy to re-arm an incident.
 
 ## Prerequisites
@@ -92,13 +92,13 @@ A `terraform apply` also undoes the lab mitigations (env vars set with gcloud): 
 | Terraform ≥ 1.5 | `terraform version` (Cloud Shell has it) |
 | A Grafana Cloud stack with Grafana Assistant | grafana.com → your stack → open Grafana |
 | The Cloud Logging plugin in that stack | Grafana → Administration → Plugins and data → Plugins → “Google Cloud Logging” → Install |
-| A stack service account token, role **Admin** | Grafana → Administration → Users and access → Service accounts → Add → Add token |
+| Only when the Grafana side is on: a stack service account token, role **Admin** | Grafana → Administration → Users and access → Service accounts → Add → Add token |
 
 ## Deploy (Lab 0)
 
 ```bash
 cd infra
-cp terraform.tfvars.example terraform.tfvars   # set project_id, grafana_url, grafana_token
+cp terraform.tfvars.example terraform.tfvars   # set project_id
 terraform init
 terraform apply                                  # review the plan, type yes (first run 5–8 min)
 cd ..
@@ -152,9 +152,9 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 | `app/backend.py` | routes `/`, `/pay`, `/query`; env `PAYMENT_GATEWAY`, `PAYMENT_FAILURE_RATE`, `PAYMENT_TIMEOUT_MS`, `DB_POOL_SIZE`, `DB_POOL_TIMEOUT_MS`, `ORDERS_INDEX` |
 | `app/Procfile`, `app/requirements.txt` | one image, `APP=frontend\|backend` picks the module |
 | `infra/main.tf` | Google Cloud: APIs, registry, image build, service accounts, both services, invoker binding, log-based metrics |
-| `infra/grafana.tf` | Grafana Cloud: read-only identity, 2 data sources, token syncer job + schedule, dashboard, alert rules |
+| `infra/variables.tf`, `infra/terraform.tfvars.example` | inputs: `project_id`, `region` |
+| `infra/grafana.tf.disabled`, `infra/tokensync.py` | Grafana Cloud side (off for now): read-only identity, 2 data sources, token sync job, dashboard, alert rules |
 | `infra/shop-overview.json` | the “Shop · Overview” dashboard |
-| `infra/terraform.tfvars.example` | your project id, stack URL and token (copy to `terraform.tfvars`, gitignored) |
 | `scripts/env.sh` | shared names: project, region, service names, `service_url`, `hit` |
 | `scripts/02-load.sh` | `[route=/] [N=20] [C=5]` load + status-code count |
 | `scripts/03-incident.sh` | `<5xx\|queryslow\|slow\|mystery> [minutes=8]` |
@@ -166,7 +166,7 @@ Try it locally (no auth, no trace), in two terminals inside `app/` after `pip in
 | Problem | Fix |
 |---|---|
 | `Billing account … is not found` when enabling an API, or Cloud Run answers 500/503 | billing is off for the project: link a billing account (Console → Billing), then `terraform apply` again |
-| `Google Cloud (PromQL)` data source: 401 / no data | run the syncer now: `gcloud run jobs execute grafana-datasource-syncer --region asia-southeast2 --wait`, then check its logs in Cloud Run → Jobs |
+| `Google Cloud (PromQL)` / `Google Cloud Logging` data source: 401 / no data | run the token sync now: `gcloud run jobs execute grafana-token-sync --region asia-southeast2 --wait`, then check its logs in Cloud Run → Jobs |
 | `terraform apply` fails on `grafana_data_source.logging` | the Cloud Logging plugin is not installed in your stack yet (Prerequisites) |
 | `02-load.sh` gets 401/403 | services are private: run `gcloud auth login` (the script sends your identity token); your user needs `roles/run.invoker` (Owner has it) |
 | Backend returns 403 to the frontend | invoker binding missing: `terraform apply` again, or wait a minute for IAM to propagate |

@@ -1,4 +1,3 @@
-# cp terraform.tfvars.example terraform.tfvars   (terraform.tfvars is gitignored: it holds a token)
-project_id    = "your-project-id"
-grafana_url   = "https://your-stack.grafana.net"
-grafana_token = "glsa_..." # stack service account, role Admin
+# cp terraform.tfvars.example terraform.tfvars
+project_id = "your-project-id"
+# region   = "asia-southeast2"

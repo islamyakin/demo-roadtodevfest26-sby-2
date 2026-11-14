@@ -8,16 +8,10 @@
 terraform {
   required_version = ">= 1.5"
   required_providers {
-    google  = { source = "hashicorp/google", version = ">= 6.0" }
-    grafana = { source = "grafana/grafana", version = ">= 3.0" }
+    google = { source = "hashicorp/google", version = ">= 6.0" }
   }
 }
 
-variable "project_id" { type = string }
-variable "region" {
-  type    = string
-  default = "asia-southeast2"
-}
 
 provider "google" {
   project = var.project_id
@@ -26,7 +20,6 @@ provider "google" {
 
 locals {
   apis = ["run", "cloudbuild", "artifactregistry", "compute", "logging", "monitoring",
-    "secretmanager", "cloudscheduler",
   "cloudresourcemanager", "iam"]
 
   # Image tag = hash of the app source, so a code change rebuilds and redeploys.

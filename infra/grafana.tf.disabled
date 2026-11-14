@@ -1,19 +1,17 @@
+# DISABLED for now: Terraform only reads *.tf files, so nothing in here is applied.
+# To enable the Grafana Cloud side again:
+#   1. git mv grafana.tf.disabled grafana.tf
+#   2. main.tf: add  grafana = { source = "grafana/grafana", version = ">= 3.0" }  to required_providers,
+#      and "secretmanager", "cloudscheduler", "iamcredentials" to local.apis
+#   3. terraform.tfvars: add grafana_url and grafana_token, then terraform init && terraform apply
+#
 # Grafana Cloud side: how your stack reads Google Cloud, plus the dashboard and alert rules.
 #
-#   "Google Cloud (PromQL)"  Prometheus data source -> Cloud Monitoring's PromQL API. Grafana Assistant
-#                            speaks PromQL natively. Its OAuth token is kept fresh by Google's own
-#                            datasource-syncer, run as a Cloud Run job every 10 min (nobody generates tokens).
-#   "Google Cloud Logging"   Google's Cloud Logging plugin with a read-only service account.
-
-variable "grafana_url" {
-  type        = string
-  description = "Your Grafana Cloud stack, e.g. https://<stack>.grafana.net"
-}
-variable "grafana_token" {
-  type        = string
-  sensitive   = true
-  description = "Token of a stack service account with role Admin (Administration > Users and access > Service accounts)"
-}
+#   "Google Cloud (PromQL)"  Prometheus data source -> Cloud Monitoring's PromQL API (the Assistant speaks PromQL).
+#   "Google Cloud Logging"   Google's Cloud Logging plugin.
+# Both authenticate with a short-lived access token of the read-only account grafana-reader. No keys:
+# the organization forbids service-account keys (iam.disableServiceAccountKeyCreation), and keys are a
+# liability anyway. The Cloud Run job "grafana-token-sync" (tokensync.py) renews the token every 10 min.
 
 provider "grafana" {
   url  = var.grafana_url
@@ -35,7 +33,14 @@ resource "google_project_iam_member" "grafana" {
   member   = "serviceAccount:${google_service_account.grafana.email}"
 }
 
-# ---------- Data sources ----------
+# The job mints fresh 1-hour tokens for itself (generateAccessToken on its own account).
+resource "google_service_account_iam_member" "grafana_self_token" {
+  service_account_id = google_service_account.grafana.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.grafana.email}"
+}
+
+# ---------- Data sources (the token sync job fills in the auth part) ----------
 
 resource "grafana_data_source" "promql" {
   type       = "prometheus"
@@ -47,19 +52,8 @@ resource "grafana_data_source" "promql" {
     httpMethod   = "GET"
     timeInterval = "60s"
     manageAlerts = false # Cloud Monitoring has no rules API; the alert rules live in Grafana
-  })
-  # The syncer owns the URL and the Authorization header from here on.
+  })                     # the Authorization header is set by the token sync job
   lifecycle { ignore_changes = [url, json_data_encoded, secure_json_data_encoded, http_headers] }
-}
-
-# The Cloud Logging plugin cannot use a refreshed token, so it gets a read-only key. The key lives
-# in Grafana Cloud and in local Terraform state only (never in git).
-resource "google_service_account_key" "grafana" {
-  service_account_id = google_service_account.grafana.name
-}
-
-locals {
-  grafana_key = jsondecode(base64decode(google_service_account_key.grafana.private_key))
 }
 
 resource "grafana_data_source" "logging" {
@@ -67,15 +61,13 @@ resource "grafana_data_source" "logging" {
   name = "Google Cloud Logging"
   uid  = "gcp-logging"
   json_data_encoded = jsonencode({
-    authenticationType = "jwt"
-    clientEmail        = local.grafana_key.client_email
+    authenticationType = "accessToken"
     defaultProject     = var.project_id
-    tokenUri           = local.grafana_key.token_uri
   })
-  secure_json_data_encoded = jsonencode({ privateKey = local.grafana_key.private_key })
+  lifecycle { ignore_changes = [json_data_encoded, secure_json_data_encoded] }
 }
 
-# ---------- Token sync: Google's datasource-syncer as a Cloud Run job, every 10 min ----------
+# ---------- Token sync: Cloud Run job, every 10 min ----------
 
 resource "google_secret_manager_secret" "grafana_token" {
   secret_id = "grafana-sa-token"
@@ -90,49 +82,39 @@ resource "google_secret_manager_secret_version" "grafana_token" {
   secret_data = var.grafana_token
 }
 
-resource "google_secret_manager_secret_iam_member" "syncer" {
+resource "google_secret_manager_secret_iam_member" "token_sync" {
   secret_id = google_secret_manager_secret.grafana_token.id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.grafana.email}"
 }
 
-# Cloud Run pulls only from Artifact Registry / Docker Hub / GHCR, so Google's public image on
-# gke.gcr.io comes in through an Artifact Registry remote repository (a pull-through proxy).
-resource "google_artifact_registry_repository" "gke" {
-  repository_id = "gke-gcr"
-  location      = var.region
-  format        = "DOCKER"
-  mode          = "REMOTE_REPOSITORY"
-  remote_repository_config {
-    description = "pull-through proxy for gke.gcr.io"
-    docker_repository {
-      custom_repository {
-        uri = "https://gke.gcr.io"
-      }
-    }
-  }
-  depends_on = [google_project_service.apis]
-}
-
-resource "google_cloud_run_v2_job" "syncer" {
-  name                = "grafana-datasource-syncer"
+resource "google_cloud_run_v2_job" "token_sync" {
+  name                = "grafana-token-sync"
   location            = var.region
   deletion_protection = false
 
   template {
     template {
-      service_account = google_service_account.grafana.email # mints the token Grafana will use
+      service_account = google_service_account.grafana.email
       max_retries     = 1
-      timeout         = "300s"
+      timeout         = "120s"
       containers {
-        image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.gke.repository_id}/prometheus-engine/datasource-syncer:v0.19.5-gke.0"
-        args = [
-          "--datasource-uids=${grafana_data_source.promql.uid}",
-          "--grafana-api-endpoint=${var.grafana_url}",
-          "--project-id=${var.project_id}",
-        ]
+        image   = "python:3.12-slim" # Docker Hub: Cloud Run pulls it directly; the script needs only the stdlib
+        command = ["python", "-c", file("${path.module}/tokensync.py")]
         env {
-          name = "GRAFANA_SERVICE_ACCOUNT_TOKEN"
+          name  = "PROJECT_ID"
+          value = var.project_id
+        }
+        env {
+          name  = "SA_EMAIL"
+          value = google_service_account.grafana.email
+        }
+        env {
+          name  = "GRAFANA_URL"
+          value = var.grafana_url
+        }
+        env {
+          name = "GRAFANA_TOKEN"
           value_source {
             secret_key_ref {
               secret  = google_secret_manager_secret.grafana_token.secret_id
@@ -143,23 +125,23 @@ resource "google_cloud_run_v2_job" "syncer" {
       }
     }
   }
-  depends_on = [google_secret_manager_secret_version.grafana_token, google_secret_manager_secret_iam_member.syncer]
+  depends_on = [google_secret_manager_secret_version.grafana_token, google_secret_manager_secret_iam_member.token_sync]
 }
 
 resource "google_cloud_run_v2_job_iam_member" "scheduler" {
-  name     = google_cloud_run_v2_job.syncer.name
+  name     = google_cloud_run_v2_job.token_sync.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.grafana.email}"
 }
 
-resource "google_cloud_scheduler_job" "syncer" {
-  name     = "grafana-datasource-syncer"
+resource "google_cloud_scheduler_job" "token_sync" {
+  name     = "grafana-token-sync"
   region   = var.region
-  schedule = "*/10 * * * *" # Google access tokens live 1 h; the syncer renews when < 10 min are left
+  schedule = "*/10 * * * *" # tokens live 1 h, renewed every 10 min
   http_target {
     http_method = "POST"
-    uri         = "https://run.googleapis.com/v2/${google_cloud_run_v2_job.syncer.id}:run"
+    uri         = "https://run.googleapis.com/v2/${google_cloud_run_v2_job.token_sync.id}:run"
     oauth_token {
       service_account_email = google_service_account.grafana.email
     }
@@ -167,13 +149,28 @@ resource "google_cloud_scheduler_job" "syncer" {
   depends_on = [google_cloud_run_v2_job_iam_member.scheduler]
 }
 
-# Run the syncer once right away, so the data source works before the first schedule tick.
+# Run the job once now, so both data sources work before the first schedule tick.
 resource "terraform_data" "first_sync" {
-  triggers_replace = [google_cloud_run_v2_job.syncer.id, grafana_data_source.promql.id, google_secret_manager_secret_version.grafana_token.id]
+  triggers_replace = [google_cloud_run_v2_job.token_sync.id, grafana_data_source.promql.id, grafana_data_source.logging.id, google_secret_manager_secret_version.grafana_token.id]
   provisioner "local-exec" {
-    command = "gcloud run jobs execute ${google_cloud_run_v2_job.syncer.name} --region ${var.region} --project ${var.project_id} --wait"
+    command = "gcloud run jobs execute ${google_cloud_run_v2_job.token_sync.name} --region ${var.region} --project ${var.project_id} --wait"
   }
-  depends_on = [google_project_iam_member.grafana]
+  depends_on = [google_project_iam_member.grafana, google_service_account_iam_member.grafana_self_token]
+}
+
+# Proof, not hope: apply fails unless Grafana itself reports both data sources healthy.
+resource "terraform_data" "check_datasources" {
+  triggers_replace = [terraform_data.first_sync.id]
+  provisioner "local-exec" {
+    environment = { GRAFANA_URL = var.grafana_url, GRAFANA_TOKEN = var.grafana_token }
+    command     = <<-EOT
+      for uid in gcp-promql gcp-logging; do
+        r=$(printf 'Authorization: Bearer %s\n' "$GRAFANA_TOKEN" | curl -sS -H @- "$GRAFANA_URL/api/datasources/uid/$uid/health")
+        echo "$uid: $r"
+        echo "$r" | grep -q '"status": *"OK"' || { echo "data source $uid is NOT healthy"; exit 1; }
+      done
+    EOT
+  }
 }
 
 # ---------- Dashboard + alert rules ----------
@@ -248,3 +245,14 @@ resource "grafana_rule_group" "shop" {
 }
 
 output "grafana_dashboard_url" { value = "${var.grafana_url}/d/${grafana_dashboard.shop.uid}" }
+
+variable "grafana_url" {
+  type        = string
+  description = "Your Grafana Cloud stack, e.g. https://<stack>.grafana.net"
+}
+
+variable "grafana_token" {
+  type        = string
+  sensitive   = true
+  description = "Token of a stack service account with role Admin (Administration > Users and access > Service accounts)"
+}

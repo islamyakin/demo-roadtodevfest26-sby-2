@@ -10,6 +10,7 @@ The Assistant reads and queries; **you** decide and run the fix. Nothing runs on
 
 - Slides: [slides/workshop.pptx](slides/workshop.pptx) · [slides/workshop.pdf](slides/workshop.pdf)
 - Prompts to paste into the Assistant: [prompts/](prompts/)
+- Docker images: [`nurulyakin/shop-frontend`](https://hub.docker.com/r/nurulyakin/shop-frontend), [`nurulyakin/shop-backend`](https://hub.docker.com/r/nurulyakin/shop-backend) (linux/amd64, see [Container images](#container-images-docker-hub))
 
 ## Architecture
 
@@ -122,18 +123,50 @@ organization forbids service-account keys (`iam.disableServiceAccountKeyCreation
 
 ## Container images (Docker Hub)
 
-Both apps also ship as `linux/amd64` images, built from [app/Dockerfile.frontend](app/Dockerfile.frontend) and
-[app/Dockerfile.backend](app/Dockerfile.backend) (non-root, same gunicorn settings as on Cloud Run):
+| Image | Docker Hub | Platform | Port | Runs as |
+|---|---|---|---|---|
+| `nurulyakin/shop-frontend:latest` | [hub.docker.com/r/nurulyakin/shop-frontend](https://hub.docker.com/r/nurulyakin/shop-frontend) | linux/amd64 | 8080 | uid 10001 (non-root) |
+| `nurulyakin/shop-backend:latest` | [hub.docker.com/r/nurulyakin/shop-backend](https://hub.docker.com/r/nurulyakin/shop-backend) | linux/amd64 | 8080 | uid 10001 (non-root) |
+
+Built from [app/Dockerfile.frontend](app/Dockerfile.frontend) and [app/Dockerfile.backend](app/Dockerfile.backend):
+`python:3.12-slim`, gunicorn with 1 worker and 16 threads, as on Cloud Run.
+
+**Run both locally** (frontend calls backend over a shared network; no auth outside Cloud Run):
 
 ```bash
-./scripts/build-images.sh <dockerhub-user> [tag]     # docker or nerdctl (colima); amd64 even on Apple silicon
+docker network create shop
+docker run -d --name backend  --network shop nurulyakin/shop-backend:latest
+docker run -d --name frontend --network shop -p 8080:8080 \
+  -e BACKEND_URL=http://backend:8080 nurulyakin/shop-frontend:latest
+
+curl localhost:8080/            # 200
+curl localhost:8080/5xx         # ~60% 502 (backend payment gateway timeout)
+curl localhost:8080/queryslow   # slow (~1 s), backend logs "slow query"
+curl localhost:8080/slow        # CPU-bound, frontend logs "slow render"
+docker logs backend             # one JSON line per event
+```
+
+**Environment variables**
+
+| Image | Variable | Default | Meaning |
+|---|---|---|---|
+| frontend | `BACKEND_URL` | `http://localhost:8081` | where the backend is (**set this**) |
+| frontend | `RECO_ITEMS` / `RECO_CACHE` | `3000000` / `false` | work per `/slow` request / cache it (the `/slow` fix) |
+| backend | `PAYMENT_GATEWAY` | `payment-gw.internal` | `payment-gw-backup.internal` = the `/5xx` fix |
+| backend | `PAYMENT_FAILURE_RATE` / `PAYMENT_TIMEOUT_MS` | `0.6` / `1500` | how often and how long the gateway times out |
+| backend | `ORDERS_INDEX` | `false` | `true` = the `/queryslow` fix |
+| backend | `DB_POOL_SIZE` / `DB_POOL_TIMEOUT_MS` | `4` / `2000` | simulated database connection pool |
+| both | `PORT` | `8080` | listen port |
+| both | `PROJECT_ID` | – | adds `logging.googleapis.com/trace` to log lines (Cloud Run) |
+
+**Build and push your own** (amd64 even on Apple silicon, with docker or nerdctl/colima):
+
+```bash
+./scripts/build-images.sh <dockerhub-user> [tag]
 docker login
 docker push <dockerhub-user>/shop-frontend:<tag>
 docker push <dockerhub-user>/shop-backend:<tag>
 ```
-
-Run them anywhere: `backend` needs nothing; `frontend` needs `BACKEND_URL` (for example `http://backend:8080` on a
-shared Docker network). Both listen on port 8080.
 
 ## Labs
 
